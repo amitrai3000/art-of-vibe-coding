@@ -31,7 +31,7 @@ class GeminiProvider(BaseAIProvider):
         Returns:
             Default model name
         """
-        return "gemini-pro"
+        return "gemini-2.0-flash"
 
     async def generate_response(
         self,

@@ -30,7 +30,7 @@ class OpenAIProvider(BaseAIProvider):
         Returns:
             Default model name
         """
-        return "gpt-4-turbo-preview"
+        return "gpt-4o-mini"
 
     async def generate_response(
         self,
