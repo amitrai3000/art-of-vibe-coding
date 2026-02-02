@@ -1,32 +1,68 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
+import { useRouter } from 'next/navigation';
 import { Message } from '@/types';
 import MessageList from './MessageList';
 import MessageInput from './MessageInput';
 import ModelSelector from './ModelSelector';
 import { createClient } from '@/lib/supabase/client';
+import { useChatStore } from '@/store/chat';
 
 interface ChatInterfaceProps {
   conversationId: string;
 }
 
 export default function ChatInterface({ conversationId }: ChatInterfaceProps) {
-  const [messages, setMessages] = useState<Message[]>([]);
+  const {
+    messages,
+    currentConversationId,
+    setCurrentConversation,
+    setMessages,
+    updateMessages,
+    addMessage,
+    clearMessages,
+  } = useChatStore();
   const [isLoading, setIsLoading] = useState(false);
+  const router = useRouter();
+  // Track the actual conversation ID (may differ from prop for new conversations)
+  const actualConversationId = useRef<string | null>(conversationId === 'new' ? null : conversationId);
+  // Track if we need to navigate after stream completes
+  const pendingNavigationId = useRef<string | null>(null);
   const supabase = createClient();
 
   useEffect(() => {
-    loadMessages();
-  }, [conversationId]);
-
-  const loadMessages = async () => {
-    // Don't load messages for new conversations
+    // Reset for new conversation
     if (conversationId === 'new') {
-      setMessages([]);
+      actualConversationId.current = null;
+      pendingNavigationId.current = null;
+      setCurrentConversation(null);
+      clearMessages();
       return;
     }
 
+    actualConversationId.current = conversationId;
+    const hasCachedMessages =
+      currentConversationId === conversationId && messages.length > 0;
+
+    setCurrentConversation(conversationId);
+    if (!hasCachedMessages) {
+      clearMessages();
+    }
+
+    loadMessages(conversationId, { preserveExisting: hasCachedMessages });
+  }, [
+    conversationId,
+    currentConversationId,
+    messages.length,
+    clearMessages,
+    setCurrentConversation,
+  ]);
+
+  const loadMessages = async (
+    convId: string,
+    options?: { preserveExisting?: boolean }
+  ) => {
     try {
       const {
         data: { session },
@@ -35,7 +71,7 @@ export default function ChatInterface({ conversationId }: ChatInterfaceProps) {
       if (!session) return;
 
       const response = await fetch(
-        `${process.env.NEXT_PUBLIC_BACKEND_URL}/api/v1/conversations/${conversationId}/messages`,
+        `${process.env.NEXT_PUBLIC_BACKEND_URL}/api/v1/conversations/${convId}/messages`,
         {
           headers: {
             Authorization: `Bearer ${session.access_token}`,
@@ -49,7 +85,11 @@ export default function ChatInterface({ conversationId }: ChatInterfaceProps) {
       }
 
       const data = await response.json();
-      setMessages(data.messages || []);
+      const nextMessages = data.messages || [];
+      if (nextMessages.length === 0 && options?.preserveExisting) {
+        return;
+      }
+      setMessages(nextMessages);
     } catch (error) {
       console.error('Failed to load messages:', error);
     }
@@ -62,12 +102,12 @@ export default function ChatInterface({ conversationId }: ChatInterfaceProps) {
       // Add user message optimistically
       const userMessage: Message = {
         id: 'temp-' + Date.now(),
-        conversation_id: conversationId,
+        conversation_id: actualConversationId.current || 'new',
         role: 'user',
         content,
         created_at: new Date().toISOString(),
       };
-      setMessages((prev) => [...prev, userMessage]);
+      addMessage(userMessage);
 
       // Get auth token
       const {
@@ -77,6 +117,12 @@ export default function ChatInterface({ conversationId }: ChatInterfaceProps) {
       if (!session) {
         throw new Error('Not authenticated');
       }
+
+      // Get current messages for context
+      const currentMessages = [
+        ...useChatStore.getState().messages,
+        userMessage,
+      ];
 
       // Stream response
       const response = await fetch(
@@ -88,10 +134,8 @@ export default function ChatInterface({ conversationId }: ChatInterfaceProps) {
             Authorization: `Bearer ${session.access_token}`,
           },
           body: JSON.stringify({
-            conversation_id: conversationId === 'new' ? null : conversationId,
-            messages: messages
-              .concat(userMessage)
-              .map((m) => ({ role: m.role, content: m.content })),
+            conversation_id: actualConversationId.current,
+            messages: currentMessages.map((m) => ({ role: m.role, content: m.content })),
             provider,
             stream: true,
           }),
@@ -119,10 +163,18 @@ export default function ChatInterface({ conversationId }: ChatInterfaceProps) {
             if (line.startsWith('data: ')) {
               try {
                 const data = JSON.parse(line.slice(6));
+
+                // Capture conversation_id for new conversations
+                if (data.conversation_id && !actualConversationId.current) {
+                  actualConversationId.current = data.conversation_id;
+                  pendingNavigationId.current = data.conversation_id;
+                  setCurrentConversation(data.conversation_id);
+                }
+
                 if (data.content) {
                   assistantMessage += data.content;
                   // Update assistant message in real-time
-                  setMessages((prev) => {
+                  updateMessages((prev) => {
                     const filtered = prev.filter(
                       (m) => !m.id.startsWith('temp-assistant')
                     );
@@ -130,7 +182,7 @@ export default function ChatInterface({ conversationId }: ChatInterfaceProps) {
                       ...filtered,
                       {
                         id: 'temp-assistant-' + Date.now(),
-                        conversation_id: conversationId,
+                        conversation_id: actualConversationId.current || 'new',
                         role: 'assistant',
                         content: assistantMessage,
                         created_at: new Date().toISOString(),
@@ -145,14 +197,18 @@ export default function ChatInterface({ conversationId }: ChatInterfaceProps) {
           }
         }
       }
-
-      // Reload messages to get the saved versions
-      await loadMessages();
     } catch (error) {
       console.error('Failed to send message:', error);
       alert('Failed to send message. Please try again.');
+      pendingNavigationId.current = null;
     } finally {
       setIsLoading(false);
+      // Navigate to the actual conversation URL after stream completes
+      if (pendingNavigationId.current) {
+        const navId = pendingNavigationId.current;
+        pendingNavigationId.current = null;
+        router.replace(`/chat/${navId}`);
+      }
     }
   };
 

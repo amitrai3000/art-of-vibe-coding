@@ -11,7 +11,9 @@ interface ChatState {
   setConversations: (conversations: Conversation[]) => void;
   setCurrentConversation: (conversationId: string | null) => void;
   setMessages: (messages: Message[]) => void;
+  updateMessages: (updater: (messages: Message[]) => Message[]) => void;
   addMessage: (message: Message) => void;
+  clearMessages: () => void;
   setSelectedProvider: (provider: AIProvider) => void;
   setIsLoading: (loading: boolean) => void;
   reset: () => void;
@@ -27,12 +29,17 @@ export const useChatStore = create<ChatState>((set) => ({
   setConversations: (conversations) => set({ conversations }),
 
   setCurrentConversation: (conversationId) =>
-    set({ currentConversationId: conversationId, messages: [] }),
+    set({ currentConversationId: conversationId }),
 
   setMessages: (messages) => set({ messages }),
 
+  updateMessages: (updater) =>
+    set((state) => ({ messages: updater(state.messages) })),
+
   addMessage: (message) =>
     set((state) => ({ messages: [...state.messages, message] })),
+
+  clearMessages: () => set({ messages: [] }),
 
   setSelectedProvider: (provider) => set({ selectedProvider: provider }),
 
