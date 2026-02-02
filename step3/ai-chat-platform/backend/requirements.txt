@@ -1,0 +1,39 @@
+fastapi==0.109.0
+uvicorn[standard]==0.27.0
+pydantic==2.5.3
+pydantic-settings==2.1.0
+python-dotenv==1.0.0
+
+# Database
+supabase==2.3.4
+psycopg2-binary==2.9.9
+sqlalchemy==2.0.25
+
+# AI Providers
+anthropic==0.18.0
+openai==1.12.0
+google-generativeai==0.3.2
+
+# Background Jobs
+celery==5.3.6
+redis==5.0.1
+
+# HTTP Client
+httpx==0.25.2
+aiohttp==3.9.3
+
+# Auth
+python-jose[cryptography]==3.3.0
+python-multipart==0.0.6
+
+# Payments
+stripe==8.2.0
+
+# Email
+resend==0.7.0
+
+# Monitoring
+sentry-sdk==1.40.0
+
+# Utilities
+python-json-logger==2.0.7
